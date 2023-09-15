@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::collections::LinkedList;
 
-fn main(){
+fn main() {
     // create graph: adjcency list
     /*
     0: 1,2
@@ -9,10 +9,10 @@ fn main(){
     2: 3
     3:
     */
-    let mut graph :HashMap<String, Vec<String>> = HashMap::new();
-    let path:LinkedList<String> = LinkedList::new();
+    let mut graph: HashMap<String, Vec<String>> = HashMap::new();
+    let path: LinkedList<String> = LinkedList::new();
 
-    graph.insert("0".to_string(), vec!["1".to_string(),"2".to_string()]);
+    graph.insert("0".to_string(), vec!["1".to_string(), "2".to_string()]);
     graph.insert("1".to_string(), vec![]);
     graph.insert("2".to_string(), vec!["3".to_string()]);
     graph.insert("3".to_string(), vec![]);
@@ -38,19 +38,18 @@ fn main(){
 // path: is borrowed and mutable, should change, we are returning it
 // destination: is borrowed, dont want to return it to access it again
 // 'a lifetime of the return type is the same as the graph itself
-fn visit<'a>(graph: &'a HashMap<String, Vec<String>>,
+fn visit<'a>(
+    graph: &'a HashMap<String, Vec<String>>,
     node: &String,
     mut path: LinkedList<String>,
-    destination: &String) -> LinkedList<String> {
-
-
+    destination: &String,
+) -> LinkedList<String> {
     // borrowed pointer to the list of neighbors
     let neighbors: &Vec<String> = graph.get(node).unwrap();
 
     // clone the current node and add it to the path, path now owns it own copy
     path.push_back(node.clone());
     println!("path {:?}", path);
-
 
     // println!("added {}, to path to make: {:?}", node, path);
 
