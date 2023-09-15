@@ -19,8 +19,8 @@ fn main(){
 
     // search graph to find if node a is reachable by node b
     //get start value
-    let current = "2".to_string();
-    let destination = "1".to_string();
+    let current = "0".to_string();
+    let destination = "3".to_string();
     println!("starting point: {}", current);
 
     // visit the first node,
@@ -43,36 +43,38 @@ fn visit<'a>(graph: &'a HashMap<String, Vec<String>>,
     mut path: LinkedList<String>,
     destination: &String) -> LinkedList<String> {
 
-    println!("visiting {}, with path {:?}", node, path);
 
     // borrowed pointer to the list of neighbors
     let neighbors: &Vec<String> = graph.get(node).unwrap();
 
     // clone the current node and add it to the path, path now owns it own copy
     path.push_back(node.clone());
+    println!("path {:?}", path);
+
+
+    // println!("added {}, to path to make: {:?}", node, path);
+
+    //
+    for neighbor in neighbors {
+        path = visit(&graph, &neighbor, path, &destination);
+
+        // println!("path when iterating over neighbors: {:?}", path);
+
+        if path.len() > 0 {
+            // println!("the last node in the path is {:?}: we are looking for {} <{}>", path.back().unwrap(), destination, path.back().unwrap() == destination);
+            if path.back().unwrap() == destination {
+                // println!("path contains destination: {:?}", path);
+                return path;
+            }
+        }
+    }
+    // println!("destination:{} was not found in sub-tree, removing this branch: {:?}", destination, path);
 
     if path.back().unwrap() == destination {
         println!("path contains destination: {:?}", path);
         return path;
     }
 
-    println!("added {}, to path to make: {:?}", node, path);
-
-    //
-    for neighbor in neighbors {
-        path = visit(&graph, &neighbor, path, &destination);
-
-        println!("path when iterating over neighbors: {:?}", path);
-
-        if path.len() > 0 {
-            println!("the last node in the path is {:?}: we are looking for {} <{}>", path.back().unwrap(), destination, path.back().unwrap() == destination);
-            if path.back().unwrap() == destination {
-                println!("path contains destination: {:?}", path);
-                return path;
-            }
-        }
-    }
-    println!("destination:{} was not found in sub-tree, removing this branch: {:?}", destination, path);
     path.pop_back();
     return path;
 }
