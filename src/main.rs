@@ -1,92 +1,78 @@
-/*
-Tic Tac Toe in rust
- */
-use std::io;
+use std::collections::HashMap;
+use std::collections::LinkedList;
 
-fn main() {
-    // build board memory model
-    let mut board: Vec<Vec<String>> = vec![vec![String::from("_"); 3]; 3];
+fn main(){
+    // create graph: adjcency list
+    /*
+    0: 1,2
+    1:
+    2: 3
+    3:
+    */
+    let mut graph :HashMap<String, Vec<String>> = HashMap::new();
+    let path:LinkedList<String> = LinkedList::new();
 
-    let mut next_move = String::from("x");
+    graph.insert("0".to_string(), vec!["1".to_string(),"2".to_string()]);
+    graph.insert("1".to_string(), vec![]);
+    graph.insert("2".to_string(), vec!["3".to_string()]);
+    graph.insert("3".to_string(), vec![]);
 
-    while !is_complete(&board) {
-        print_board(&board);
+    // search graph to find if node a is reachable by node b
+    //get start value
+    let current = "2".to_string();
+    let destination = "1".to_string();
+    println!("starting point: {}", current);
 
-        println!("which column, which row");
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)
-            .expect("failed to read line");
+    // visit the first node,
+    // graph: is borrowed, dont want to return it to access it again
+    // current: is borrowed, dont want to return it to access it again
+    // path: is borrowed and mutable, should change, we are returning it
+    // destination: is borrowed, dont want to return it to access it again
+    let solution = visit(&graph, &current, path, &destination);
 
-        let substrings: Vec<&str> = input.split(",").collect();
-        let row: u32 = substrings[0].parse().unwrap();
-        let column: u32 = substrings[1].lines().collect::<Vec<&str>>().join("").parse().unwrap();
+    println!("the solution is {:?}", solution)
+}
 
-        println!("{}: {}", row, column);
+// graph: is borrowed, dont want to return it to access it again
+// current: is borrowed, dont want to return it to access it again
+// path: is borrowed and mutable, should change, we are returning it
+// destination: is borrowed, dont want to return it to access it again
+// 'a lifetime of the return type is the same as the graph itself
+fn visit<'a>(graph: &'a HashMap<String, Vec<String>>,
+    node: &String,
+    mut path: LinkedList<String>,
+    destination: &String) -> LinkedList<String> {
 
-        make_move(&mut board, row, column, &next_move);
+    println!("visiting {}, with path {:?}", node, path);
 
-        if next_move == "x" {
-            next_move = String::from("o");
-        } else if next_move == "o" {
-            next_move = String::from("x");
+    // borrowed pointer to the list of neighbors
+    let neighbors: &Vec<String> = graph.get(node).unwrap();
+
+    // clone the current node and add it to the path, path now owns it own copy
+    path.push_back(node.clone());
+
+    if path.back().unwrap() == destination {
+        println!("path contains destination: {:?}", path);
+        return path;
+    }
+
+    println!("added {}, to path to make: {:?}", node, path);
+
+    //
+    for neighbor in neighbors {
+        path = visit(&graph, &neighbor, path, &destination);
+
+        println!("path when iterating over neighbors: {:?}", path);
+
+        if path.len() > 0 {
+            println!("the last node in the path is {:?}: we are looking for {} <{}>", path.back().unwrap(), destination, path.back().unwrap() == destination);
+            if path.back().unwrap() == destination {
+                println!("path contains destination: {:?}", path);
+                return path;
+            }
         }
     }
-
-    println!("done")
-}
-
-fn make_move(board: &mut Vec<Vec<String>>, row: u32, col: u32, value: &String) {
-    board[row as usize][col as usize] = value.clone();
-}
-
-fn print_board(board: &Vec<Vec<String>>) {
-    for row in board {
-        for column in row {
-            print!("{}", column);
-        }
-        print!("\r\n")
-    }
-}
-
-fn is_complete(board: &Vec<Vec<String>>) -> bool {
-    let win_masks: Vec<u32> = vec![448, 292, 146, 73, 56, 7, 273, 84];
-    let mask: String = flatten(board).concat();
-
-    let x_win_mask: String = create_win_mask(&mask, 'x');
-    let o_win_mask: String = create_win_mask(&mask, 'o');
-
-    if win_masks.contains(&u32::from_str_radix(x_win_mask.as_str(), 2).unwrap())
-    {
-        println!("x won!");
-        print_board(&board);
-        return true;
-    }
-
-    if win_masks.contains(&u32::from_str_radix(o_win_mask.as_str(), 2).unwrap())
-    {
-        println!("o won!");
-        print_board(&board);
-        return true;
-    }
-    return false;
-}
-
-fn flatten(nested: &Vec<Vec<String>>) -> Vec<String> {
-    let mut flat: Vec<String> = vec![];
-    nested.iter().for_each(|row| {
-        row.iter().for_each(|item| {
-            flat.push(item.clone());
-        })
-    });
-
-    flat
-}
-
-fn create_win_mask(array: &String, winner: char) -> String {
-    array.chars().into_iter().map(|x| {
-        if x == winner {
-            return "1";
-        }
-        return "0";
-    }).collect()
+    println!("destination:{} was not found in sub-tree, removing this branch: {:?}", destination, path);
+    path.pop_back();
+    return path;
 }
