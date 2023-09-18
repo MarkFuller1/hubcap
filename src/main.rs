@@ -8,15 +8,15 @@ use axum::{
 use bb8::{Pool, PooledConnection};
 use bb8_postgres::PostgresConnectionManager;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::net::SocketAddr;
 use tokio_postgres::{NoTls, Row};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use postgres_from_row::FromRow;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, FromRow)]
 struct Default {
-    id: i32,
-    name: String,
+    id: String,
+    timestamp: String,
 }
 
 #[tokio::main]
@@ -43,7 +43,7 @@ async fn main() {
     let app = Router::new()
         .route(
             "/",
-            get(using_connection_pool_extractor).post(using_connection_extractor),
+            get(using_connection_pool_extractor), // .post(using_connection_extractor),
         )
         .with_state(pool);
 
@@ -63,23 +63,22 @@ async fn using_connection_pool_extractor(
 ) -> Result<String, (StatusCode, String)> {
     let conn = pool.get().await.map_err(internal_error)?;
 
-    let values: Row = conn
-        .query_one(
-            "select json_agg(k)::TEXT from
-                (SELECT *
+    let values: Vec<Row> = conn
+        .query(
+            "SELECT id::TEXT, timestamp::TEXT
                     FROM S_KITTY.KITTY_DATA
                     GROUP BY ID
-                    LIMIT 100) AS K",
+                    LIMIT 100",
             &[],
         )
         .await
         .map_err(internal_error)?;
 
-    println!("found {:?}", values);
+    let parsed:Vec<Default>  = values.iter().map(|x| Default::try_from_row(&x).unwrap()).collect();
 
-    let json = values.try_get(0).unwrap();
+    let deserialized: String = serde_json::to_string(&parsed).unwrap();
 
-    Ok(json)
+    Ok(deserialized)
 }
 
 // we can also write a custom extractor that grabs a connection from the pool
@@ -103,17 +102,17 @@ where
     }
 }
 
-async fn using_connection_extractor(
-    DatabaseConnection(conn): DatabaseConnection,
-) -> Result<String, (StatusCode, String)> {
-    let row = conn
-        .query_one("select 1 + 1", &[])
-        .await
-        .map_err(internal_error)?;
-    let two: i32 = row.try_get(0).map_err(internal_error)?;
+// async fn using_connection_extractor(
+//     DatabaseConnection(conn): DatabaseConnection,
+// ) -> Result<String, (StatusCode, String)> {
+//     let row = conn
+//         .query_one("select 1 + 1", &[])
+//         .await
+//         .map_err(internal_error)?;
+//     let two: i32 = row.try_get(0).map_err(internal_error)?;
 
-    Ok(two.to_string())
-}
+//     Ok(two.to_string())
+// }
 
 /// Utility function for mapping any error into a `500 Internal Server Error`
 /// response.
