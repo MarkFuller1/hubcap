@@ -1,92 +1,125 @@
-/*
-Tic Tac Toe in rust
- */
-use std::io;
+use axum::{
+    async_trait,
+    extract::{FromRef, FromRequestParts, State},
+    http::{request::Parts, StatusCode},
+    routing::get,
+    Json, Router,
+};
+use bb8::{Pool, PooledConnection};
+use bb8_postgres::PostgresConnectionManager;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::net::SocketAddr;
+use tokio_postgres::{NoTls, Row};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-fn main() {
-    // build board memory model
-    let mut board: Vec<Vec<String>> = vec![vec![String::from("_"); 3]; 3];
+#[derive(Serialize, Deserialize, Debug)]
+struct Default {
+    id: i32,
+    name: String,
+}
 
-    let mut next_move = String::from("x");
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "example_tokio_postgres=debug".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
-    while !is_complete(&board) {
-        print_board(&board);
+    let manager: PostgresConnectionManager<NoTls> = PostgresConnectionManager::new_from_stringlike(
+        "user=postgres password=password dbname=kitty host=192.168.1.3",
+        NoTls,
+    )
+    .unwrap();
 
-        println!("which column, which row");
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)
-            .expect("failed to read line");
+    // set up connection pool
+    let pool: Pool<PostgresConnectionManager<NoTls>> =
+        Pool::builder().build(manager).await.unwrap();
 
-        let substrings: Vec<&str> = input.split(",").collect();
-        let row: u32 = substrings[0].parse().unwrap();
-        let column: u32 = substrings[1].lines().collect::<Vec<&str>>().join("").parse().unwrap();
+    // build our application with some routes
+    let app = Router::new()
+        .route(
+            "/",
+            get(using_connection_pool_extractor).post(using_connection_extractor),
+        )
+        .with_state(pool);
 
-        println!("{}: {}", row, column);
+    // run it with hyper
+    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    tracing::debug!("listening on {}", addr);
+    axum::Server::bind(&addr)
+        .serve(app.into_make_service())
+        .await
+        .unwrap();
+}
 
-        make_move(&mut board, row, column, &next_move);
+type ConnectionPool = Pool<PostgresConnectionManager<NoTls>>;
 
-        if next_move == "x" {
-            next_move = String::from("o");
-        } else if next_move == "o" {
-            next_move = String::from("x");
-        }
+async fn using_connection_pool_extractor(
+    State(pool): State<ConnectionPool>,
+) -> Result<String, (StatusCode, String)> {
+    let conn = pool.get().await.map_err(internal_error)?;
+
+    let values: Row = conn
+        .query_one(
+            "select json_agg(k)::TEXT from
+                (SELECT *
+                    FROM S_KITTY.KITTY_DATA
+                    GROUP BY ID
+                    LIMIT 100) AS K",
+            &[],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    println!("found {:?}", values);
+
+    let json = values.try_get(0).unwrap();
+
+    Ok(json)
+}
+
+// we can also write a custom extractor that grabs a connection from the pool
+// which setup is appropriate depends on your application
+struct DatabaseConnection(PooledConnection<'static, PostgresConnectionManager<NoTls>>);
+
+#[async_trait]
+impl<S> FromRequestParts<S> for DatabaseConnection
+where
+    ConnectionPool: FromRef<S>,
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(_parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let pool = ConnectionPool::from_ref(state);
+
+        let conn = pool.get_owned().await.map_err(internal_error)?;
+
+        Ok(Self(conn))
     }
-
-    println!("done")
 }
 
-fn make_move(board: &mut Vec<Vec<String>>, row: u32, col: u32, value: &String) {
-    board[row as usize][col as usize] = value.clone();
+async fn using_connection_extractor(
+    DatabaseConnection(conn): DatabaseConnection,
+) -> Result<String, (StatusCode, String)> {
+    let row = conn
+        .query_one("select 1 + 1", &[])
+        .await
+        .map_err(internal_error)?;
+    let two: i32 = row.try_get(0).map_err(internal_error)?;
+
+    Ok(two.to_string())
 }
 
-fn print_board(board: &Vec<Vec<String>>) {
-    for row in board {
-        for column in row {
-            print!("{}", column);
-        }
-        print!("\r\n")
-    }
-}
-
-fn is_complete(board: &Vec<Vec<String>>) -> bool {
-    let win_masks: Vec<u32> = vec![448, 292, 146, 73, 56, 7, 273, 84];
-    let mask: String = flatten(board).concat();
-
-    let x_win_mask: String = create_win_mask(&mask, 'x');
-    let o_win_mask: String = create_win_mask(&mask, 'o');
-
-    if win_masks.contains(&u32::from_str_radix(x_win_mask.as_str(), 2).unwrap())
-    {
-        println!("x won!");
-        print_board(&board);
-        return true;
-    }
-
-    if win_masks.contains(&u32::from_str_radix(o_win_mask.as_str(), 2).unwrap())
-    {
-        println!("o won!");
-        print_board(&board);
-        return true;
-    }
-    return false;
-}
-
-fn flatten(nested: &Vec<Vec<String>>) -> Vec<String> {
-    let mut flat: Vec<String> = vec![];
-    nested.iter().for_each(|row| {
-        row.iter().for_each(|item| {
-            flat.push(item.clone());
-        })
-    });
-
-    flat
-}
-
-fn create_win_mask(array: &String, winner: char) -> String {
-    array.chars().into_iter().map(|x| {
-        if x == winner {
-            return "1";
-        }
-        return "0";
-    }).collect()
+/// Utility function for mapping any error into a `500 Internal Server Error`
+/// response.
+fn internal_error<E>(err: E) -> (StatusCode, String)
+where
+    E: std::error::Error,
+{
+    (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
 }
